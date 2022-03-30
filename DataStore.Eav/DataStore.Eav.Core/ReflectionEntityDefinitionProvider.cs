@@ -12,6 +12,15 @@ namespace DataStore.Eav.Core
 {
     public class ReflectionEntityDefinitionProvider : IEntityDefinitionProvider
     {
+        /// <summary>
+        /// Static cached instance of the reflected type info of IEnumerable
+        /// </summary>
+        private static readonly TypeInfo iEnumerableTypeInfo = typeof(IEnumerable).GetTypeInfo();
+        /// <summary>
+        /// Static cached instance of the reflected type info of IEnumerable<>
+        /// </summary>
+        private static readonly TypeInfo genericIEnumerableTypeInfo = typeof(IEnumerable<>).GetTypeInfo();
+
         private readonly IEntityDefinitionKeyProvider keyProvider;
 
         public ReflectionEntityDefinitionProvider(IEntityDefinitionKeyProvider keyProvider)
@@ -96,9 +105,14 @@ namespace DataStore.Eav.Core
                 return AttributeTypeEnum.UInt64;
 
             var typeInfo = memberType.GetTypeInfo();
-            if (typeof(IEnumerable<>).GetTypeInfo().IsAssignableFrom(typeInfo))
+
+            // if it's a type that implements IEnumerable<T>
+            if (typeInfo == genericIEnumerableTypeInfo || genericIEnumerableTypeInfo.IsAssignableFrom(typeInfo))
                 return GetAttributeType(typeInfo.GenericTypeParameters[0]);
-                //.inter(typeof(IEnumerable<>)))
+            //.inter(typeof(IEnumerable<>)))
+
+            if (IsIEnumerableOfT(memberType) || iEnumerableTypeInfo.IsAssignableFrom(typeInfo))
+                return GetAttributeType(typeInfo.GenericTypeArguments[0]);
 
             throw new NotSupportedException($"Type '{memberType}' is not supported!");
         }
@@ -108,7 +122,7 @@ namespace DataStore.Eav.Core
             var flags = AttributeFlagsEnum.None;
             var typeInfo = memberType.GetTypeInfo();
 
-            if ((memberType.IsByRef || (Nullable.GetUnderlyingType(memberType) != null))
+            if ((memberType.IsByRef || memberType.IsClass || (Nullable.GetUnderlyingType(memberType) != null))
                 // not having [Required] attribute
                 && (typeInfo.GetCustomAttributes<RequiredAttribute>() == null))
                 flags |= AttributeFlagsEnum.Nullable;
@@ -127,8 +141,14 @@ namespace DataStore.Eav.Core
 
         private static bool IsEnumerableType(TypeInfo ti)
         {
-            return typeof(IEnumerable).GetTypeInfo().IsAssignableFrom(ti)
-                || typeof(IEnumerable<>).GetTypeInfo().IsAssignableFrom(ti);
+            return iEnumerableTypeInfo.IsAssignableFrom(ti)
+                || genericIEnumerableTypeInfo.IsAssignableFrom(ti);
+        }
+
+        private static bool IsIEnumerableOfT(Type type)
+        {
+            return type.GetInterfaces().Any(x => x.IsGenericType
+                   && x.GetGenericTypeDefinition() == typeof(IEnumerable<>));
         }
 
         private static bool IsCollectionType(TypeInfo ti)
